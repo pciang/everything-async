@@ -85,7 +85,7 @@ namespace bkc
             case -1:
                 std::fprintf(stderr, "Usage:\n");
                 std::fprintf(stderr, "  [-h | --help]\n");
-                std::fprintf(stderr, "  (-l | --port)             Listen on which local port number (e.g.: 8080)\n");
+                std::fprintf(stderr, "  (-p | --port)             Listen on which local port number (e.g.: 8080)\n");
                 std::fprintf(stderr, "  (-a | --destination_addr) Destination host (e.g.: 192.168.0.1)\n");
                 std::fprintf(stderr, "  (-P | --destination_port) Destination port (e.g.: 80)\n");
                 break;
