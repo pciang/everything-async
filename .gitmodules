@@ -1,0 +1,6 @@
+[submodule "libuv"]
+	path = libuv
+	url = https://github.com/libuv/libuv.git
+[submodule "llhttp"]
+	path = llhttp
+	url = https://github.com/nodejs/llhttp.git
