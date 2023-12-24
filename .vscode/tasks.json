@@ -13,6 +13,8 @@
                 "-I",
                 "${workspaceFolder}/libuv/include",
                 "-I",
+                "${workspaceFolder}/libuv/src",
+                "-I",
                 "${workspaceFolder}/llhttp/build",
                 "-L",
                 "${workspaceFolder}/libuv/.libs",

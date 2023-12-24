@@ -11,16 +11,17 @@ void on_attempted_write(uv_write_t *pwreq, int status)
 {
     if (0 != status)
     {
-        // ensure that subsequent cancelled write_cb(s) don't repeat this
         if (UV_ECANCELED != status)
         {
+            // just close both ends
+            uv_stream_t *stream = pwreq->handle,
+                        *otherend = get_otherend(stream);
+
             int _;
+            _ = uv_read_stop(stream);
+            _ = uv_read_stop(otherend);
 
-            // immediately prevent read_cb from being invoked;
-            _ = uv_read_stop(pwreq->handle);
-            _ = uv_read_stop(get_otherend(pwreq->handle));
-
-            uv_close((uv_handle_t *)pwreq->handle, cascading_cleanup);
+            uv_close((uv_handle_t *)stream, cascading_cleanup);
         }
 
         fprintf(stderr, "error after write attempt %p: %s\n", (void *)pwreq->handle, uv_strerror(status));
@@ -33,6 +34,8 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 {
     int _;
 
+    uv_stream_t *otherend = get_otherend(stream);
+
     if (0 >= nread)
     {
         switch (nread)
@@ -40,20 +43,23 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
         case 0: // EAGAIN or EWOULDBLOCK
             break;
 
-        default:
+        case UV_EOF:
         {
             _ = uv_read_stop(stream);
 
             uv_shutdown_t *pshutreq = (uv_shutdown_t *)malloc(sizeof(uv_shutdown_t));
-            _ = uv_shutdown(pshutreq, get_otherend(stream), destruct_shutdown_request);
-
-            if (UV_EOF != nread)
-            {
-                fprintf(stderr, "error while reading %p: %s\n", (void *)stream, uv_strerror(nread));
-            }
+            _ = uv_shutdown(pshutreq, otherend, destruct_shutdown_request);
 
             break;
         }
+        default:
+            _ = uv_read_stop(stream);
+            _ = uv_read_stop(otherend);
+
+            uv_close((uv_handle_t *)stream, cascading_cleanup);
+
+            fprintf(stderr, "error while reading %p: %s\n", (void *)stream, uv_strerror(nread));
+            break;
         }
 
         if (NULL != buf->base)
@@ -65,8 +71,6 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
     }
 
     int retval;
-
-    uv_stream_t *otherend = get_otherend(stream);
 
     uv_write_t *pwreq = make_write_request(buf->base, nread);
     uv_buf_t *pbuf = (uv_buf_t *)pwreq->data;
@@ -91,7 +95,6 @@ void on_otherend_connected(uv_connect_t *req, int status)
 
     if (0 != status)
     {
-        // close client and cleanup both sockets
         uv_close((uv_handle_t *)get_otherend(req->handle), cleanup_bothends);
 
         fprintf(stderr, "couldn't connect to the other end: %s\n", uv_strerror(status));
@@ -134,7 +137,7 @@ void on_new_client(uv_stream_t *server, int status)
 {
     if (0 != status)
     {
-        fprintf(stderr, uv_strerror(status));
+        fprintf(stderr, "error accepting a new connection: %s", uv_strerror(status));
         return;
     }
 

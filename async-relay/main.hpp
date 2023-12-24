@@ -73,20 +73,20 @@ void common_alloc(uv_handle_t *_, size_t suggested_size, uv_buf_t *buf)
 
 void destruct_shutdown_request(uv_shutdown_t *req, int status)
 {
-    if (0 != status)
+    switch (status)
     {
+    case 0:
+        // when both ends have sent EOF, it's time to close them
+        if (!uv_is_writable(req->handle) && !uv_is_writable(get_otherend(req->handle)))
+        {
+            uv_close((uv_handle_t *)req->handle, cleanup_bothends);
+        }
+        break;
+    case UV_ECANCELED:
+        break;
+    default:
         fprintf(stderr, "error after shutdown attempt: %s\n", uv_strerror(status));
-    }
-
-    uv_stream_t *stream = req->handle,
-                *otherend = get_otherend(stream);
-
-    if (!uv_is_writable(stream) && !uv_is_writable(otherend))
-    {
-        arelay::cnx_t *pcnx = (arelay::cnx_t *)req->handle->data;
-
-        free(pcnx->pfreeable_pair);
-        free(pcnx->pfreeable_data);
+        break;
     }
 
     free(req);
@@ -111,19 +111,6 @@ void destruct_write_request(uv_write_t *pwreq)
     free(pwbuf);
 
     free(pwreq);
-}
-
-void conditional_cleanup(uv_handle_t *handle)
-{
-    uv_handle_t *otherend = get_otherend(handle);
-
-    if (!uv_is_writable((uv_stream_t *)handle) && !uv_is_writable((uv_stream_t *)otherend))
-    {
-        arelay::cnx_t *pcnx = (arelay::cnx_t *)handle->data;
-
-        free(pcnx->pfreeable_pair);
-        free(pcnx->pfreeable_data);
-    }
 }
 
 #endif

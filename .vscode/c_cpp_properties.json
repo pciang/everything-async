@@ -4,6 +4,7 @@
             "name": "Mac",
             "includePath": [
                 "${workspaceFolder}/libuv/include",
+                "${workspaceFolder}/libuv/src",
                 "${workspaceFolder}/llhttp/build"
             ],
             "defines": [],
