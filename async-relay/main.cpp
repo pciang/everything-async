@@ -7,7 +7,7 @@
 #include "main.hpp"
 #include "opts.hpp"
 
-void on_attempted_write(uv_write_t *req, int status)
+void on_attempted_write(uv_write_t *pwreq, int status)
 {
     if (0 != status)
     {
@@ -17,31 +17,44 @@ void on_attempted_write(uv_write_t *req, int status)
             int _;
 
             // immediately prevent read_cb from being invoked;
-            _ = uv_read_stop(req->handle);
-            _ = uv_read_stop((uv_stream_t *)get_otherend(req->handle));
+            _ = uv_read_stop(pwreq->handle);
+            _ = uv_read_stop(get_otherend(pwreq->handle));
 
-            uv_close((uv_handle_t *)req->handle, cascading_cleanup);
+            uv_close((uv_handle_t *)pwreq->handle, cascading_cleanup);
         }
 
-        fprintf(stderr, "error after write attempt %p: %s\n", (void *)req->handle, uv_strerror(status));
+        fprintf(stderr, "error after write attempt %p: %s\n", (void *)pwreq->handle, uv_strerror(status));
     }
 
-    free(req);
+    destruct_write_request(pwreq);
 }
 
 void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 {
     int _;
 
-    if (0 != nread)
+    if (0 >= nread)
     {
-        // immediately prevent read_cb from being invoked
-        _ = uv_read_stop(stream);
-        _ = uv_read_stop((uv_stream_t *)get_otherend(stream));
+        switch (nread)
+        {
+        case 0: // EAGAIN or EWOULDBLOCK
+            break;
 
-        uv_close((uv_handle_t *)stream, cascading_cleanup);
+        default:
+        {
+            _ = uv_read_stop(stream);
 
-        fprintf(stderr, "error while reading %p: %s\n", (void *)stream, uv_strerror(nread));
+            uv_shutdown_t *pshutreq = (uv_shutdown_t *)malloc(sizeof(uv_shutdown_t));
+            _ = uv_shutdown(pshutreq, get_otherend(stream), destruct_shutdown_request);
+
+            if (UV_EOF != nread)
+            {
+                fprintf(stderr, "error while reading %p: %s\n", (void *)stream, uv_strerror(nread));
+            }
+
+            break;
+        }
+        }
 
         if (NULL != buf->base)
         {
@@ -53,18 +66,19 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 
     int retval;
 
-    uv_write_t *pwreq = (uv_write_t *)malloc(sizeof(uv_write_t));
-    uv_stream_t *otherend = (uv_stream_t *)get_otherend(stream);
+    uv_stream_t *otherend = get_otherend(stream);
 
-    if (0 != (retval = uv_write(pwreq, otherend, buf, 1, on_attempted_write)))
+    uv_write_t *pwreq = make_write_request(buf->base, nread);
+    uv_buf_t *pbuf = (uv_buf_t *)pwreq->data;
+
+    if (0 != (retval = uv_write(pwreq, otherend, pbuf, 1, on_attempted_write)))
     {
         _ = uv_read_stop(stream);
         _ = uv_read_stop(otherend);
 
         uv_close((uv_handle_t *)stream, cascading_cleanup);
 
-        free(pwreq);
-        free(buf->base);
+        destruct_write_request(pwreq);
 
         fprintf(stderr, "error while attempting to write %p -> %p: %s\n", (void *)stream, (void *)otherend, uv_strerror(retval));
         return;
@@ -89,7 +103,7 @@ void on_otherend_connected(uv_connect_t *req, int status)
     int retval;
 
     uv_stream_t *otherend = req->handle,
-                *client = (uv_stream_t *)get_otherend(otherend);
+                *client = get_otherend(otherend);
 
     if (0 != (retval = uv_read_start(client, common_alloc, on_data_read)))
     {

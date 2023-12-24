@@ -1,23 +1,24 @@
 {
     "configurations": [
         {
-            "name": "C/C++: g++-13 build and debug active file",
+            "name": "Debug async-relay/main",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/${fileDirnameBasename}/${fileBasenameNoExtension}",
+            "program": "${workspaceFolder}/build/async-relay/main",
             "args": [
                 "-p",
                 "8080",
                 "-H",
-                "127.0.0.1",
+                "192.168.0.1",
                 "-P",
-                "5432"
+                "80"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
-            "MIMode": "lldb"
+            "MIMode": "lldb",
+            "preLaunchTask": "Compile a file with main()"
         }
     ],
     "version": "2.0.0"

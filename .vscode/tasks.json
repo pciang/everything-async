@@ -7,7 +7,7 @@
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
-                "${workspaceFolder}/${relativeFile}",
+                "${workspaceFolder}/${relativeFileDirname}/${fileBasenameNoExtension}.cpp",
                 "-o",
                 "${workspaceFolder}/build/${fileDirnameBasename}/${fileBasenameNoExtension}",
                 "-I",

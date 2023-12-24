@@ -15,6 +15,7 @@ namespace arelay
         uv_tcp_t *otherend;
         void *pfreeable_pair,
             *pfreeable_data;
+        int flag;
     };
 };
 
@@ -47,21 +48,82 @@ void cleanup_bothends(uv_handle_t *handle)
     free(pcnx->pfreeable_pair);
 }
 
-uv_tcp_t *get_otherend(uv_stream_t *stream)
+uv_stream_t *get_otherend(uv_stream_t *stream)
 {
     arelay::cnx_t *pcnx = (arelay::cnx_t *)stream->data;
-    return pcnx->otherend;
+    return (uv_stream_t *)pcnx->otherend;
+}
+
+uv_handle_t *get_otherend(uv_handle_t *handle)
+{
+    arelay::cnx_t *pcnx = (arelay::cnx_t *)handle->data;
+    return (uv_handle_t *)pcnx->otherend;
 }
 
 void cascading_cleanup(uv_handle_t *handle)
 {
-    uv_close((uv_handle_t *)get_otherend((uv_stream_t *)handle), cleanup_bothends);
+    uv_close(get_otherend(handle), cleanup_bothends);
 }
 
 void common_alloc(uv_handle_t *_, size_t suggested_size, uv_buf_t *buf)
 {
     buf->base = (char *)malloc(suggested_size);
     buf->len = suggested_size;
+}
+
+void destruct_shutdown_request(uv_shutdown_t *req, int status)
+{
+    if (0 != status)
+    {
+        fprintf(stderr, "error after shutdown attempt: %s\n", uv_strerror(status));
+    }
+
+    uv_stream_t *stream = req->handle,
+                *otherend = get_otherend(stream);
+
+    if (!uv_is_writable(stream) && !uv_is_writable(otherend))
+    {
+        arelay::cnx_t *pcnx = (arelay::cnx_t *)req->handle->data;
+
+        free(pcnx->pfreeable_pair);
+        free(pcnx->pfreeable_data);
+    }
+
+    free(req);
+}
+
+uv_write_t *make_write_request(char *base, ssize_t nread)
+{
+    uv_buf_t *pwbuf = (uv_buf_t *)malloc(sizeof(uv_buf_t));
+    pwbuf->base = base;
+    pwbuf->len = nread;
+
+    uv_write_t *pwreq = (uv_write_t *)malloc(sizeof(uv_write_t));
+    pwreq->data = pwbuf;
+
+    return pwreq;
+}
+
+void destruct_write_request(uv_write_t *pwreq)
+{
+    uv_buf_t *pwbuf = (uv_buf_t *)pwreq->data;
+    free(pwbuf->base);
+    free(pwbuf);
+
+    free(pwreq);
+}
+
+void conditional_cleanup(uv_handle_t *handle)
+{
+    uv_handle_t *otherend = get_otherend(handle);
+
+    if (!uv_is_writable((uv_stream_t *)handle) && !uv_is_writable((uv_stream_t *)otherend))
+    {
+        arelay::cnx_t *pcnx = (arelay::cnx_t *)handle->data;
+
+        free(pcnx->pfreeable_pair);
+        free(pcnx->pfreeable_data);
+    }
 }
 
 #endif
