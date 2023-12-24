@@ -98,6 +98,8 @@ void on_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf)
         int retval;
         if (0 != (retval = uv_write(pwreq, client, buf, 1, after_write_attempt)))
         {
+            destruct_write_request(pwreq);
+
             fprintf(stderr, "couldn't write to client: %s\n", uv_err_name(retval));
         }
     }

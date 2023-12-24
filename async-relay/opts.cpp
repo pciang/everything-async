@@ -2,17 +2,17 @@
 
 int main(int argc, char *argv[])
 {
-    enum bkc::parse_err_t retcode = bkc::parse_opts(argc, argv);
-    if (bkc::parse_success != retcode)
+    arelay::parse_errcode_t retcode = arelay::parse_opts(argc, argv);
+
+    if (arelay::parse_success != retcode)
     {
-        // TODO:
-        printf("%s\n", bkc::errstring(retcode));
+        printf("%s\n", arelay::parse_errstr(retcode));
         return -1;
     }
     else
     {
-        printf("listening on port   : %d\n", bkc::opts.port);
-        printf("target addr and port: %s:%d\n", bkc::opts.destination_addr.c_str(), bkc::opts.destination_port);
+        printf("listening on port   : %d\n", arelay::opts.port);
+        printf("target addr and port: %s:%d\n", arelay::opts.destination_host.c_str(), arelay::opts.destination_port);
     }
     return 0;
 }

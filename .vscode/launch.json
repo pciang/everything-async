@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "name": "C/C++: g++-13 build and debug active file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/${fileDirnameBasename}/${fileBasenameNoExtension}",
+            "args": [
+                "-p",
+                "8080",
+                "-H",
+                "127.0.0.1",
+                "-P",
+                "5432"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb"
+        }
+    ],
+    "version": "2.0.0"
+}
