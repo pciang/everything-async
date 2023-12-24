@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "Debug async-relay/main",
+            "name": "Run a relay to a local Postgres db",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/async-relay/main",
@@ -9,9 +9,9 @@
                 "-p",
                 "8080",
                 "-H",
-                "192.168.0.1",
+                "127.0.0.1",
                 "-P",
-                "80"
+                "5432"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
