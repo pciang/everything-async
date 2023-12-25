@@ -81,6 +81,9 @@
         "thread": "cpp",
         "cinttypes": "cpp",
         "internal.h": "c",
-        "uv.h": "c"
+        "uv.h": "c",
+        "__tree": "cpp",
+        "map": "cpp",
+        "iostream": "cpp"
     }
 }

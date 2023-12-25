@@ -5,7 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/libuv/include",
                 "${workspaceFolder}/libuv/src",
-                "${workspaceFolder}/llhttp/build"
+                "${workspaceFolder}/llhttp/build",
+                "${workspaceFolder}/llhttp/build/c"
             ],
             "defines": [],
             "macFrameworkPath": [
