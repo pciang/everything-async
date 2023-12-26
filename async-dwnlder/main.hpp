@@ -99,9 +99,8 @@ namespace dwnlder
     struct prog_t
     {
         addrinfo *res;
-        uv_cond_t gate;
-        uv_mutex_t lock;
         uv_file outfile;
+        addrinfo hint;
         llhttp_settings_t settings;
     };
 
@@ -111,6 +110,7 @@ namespace dwnlder
         std::string partial;
         header_t headers;
         header_t::iterator pheader;
+        int64_t filewr_offset;
     };
 };
 
@@ -126,11 +126,13 @@ dwnlder::prog_t *get_prog(uv_loop_t *loop)
 
 dwnlder::composite_parser_t *make_composite(const llhttp_settings_t *settings)
 {
-    dwnlder::composite_parser_t *composite = (dwnlder::composite_parser_t *)malloc(sizeof(dwnlder::composite_parser_t));
-    composite->partial = std::move(std::string());
-    composite->headers = std::move(header_t());
+    void *composite_raw = malloc(sizeof(dwnlder::composite_parser_t));
+    dwnlder::composite_parser_t *composite = new (composite_raw) dwnlder::composite_parser_t;
+    composite->partial = std::string();
+    composite->headers = header_t();
     composite->pheader = composite->headers.begin();
     llhttp_init(&composite->parser, HTTP_RESPONSE, settings);
+    composite->filewr_offset = 0LL;
     return composite;
 }
 
@@ -171,41 +173,11 @@ int on_header_value_complete(llhttp_t *parser)
     return 0;
 }
 
-void on_attempted_fs_open(uv_fs_t *req)
-{
-    if (0 > req->result)
-    {
-        fprintf(stderr, "couldn't open the file: %s\n", uv_err_name(req->result));
-
-        free(req);
-        return;
-    }
-
-    dwnlder::prog_t *prog = get_prog(req->loop);
-    prog->outfile = req->result;
-
-    // signal the other side that the wait is over
-    uv_cond_signal(&prog->gate);
-
-    free(req);
-}
-
 int on_headers_complete(llhttp_t *parser)
 {
     if (HTTP_STATUS_OK != llhttp_get_status_code(parser))
     {
         fprintf(stderr, "response is not OK\n");
-        return -1;
-    }
-
-    int retval;
-
-    uv_fs_t *fsreq = (uv_fs_t *)malloc(sizeof(uv_fs_t));
-    if (0 != (retval = uv_fs_open(uv_default_loop(), fsreq, dwnlder::opts.outfile.c_str(), O_CREAT, O_RDWR, on_attempted_fs_open)))
-    {
-        fprintf(stderr, "error attempting to open a file: %s\n", uv_err_name(retval));
-
-        free(fsreq);
         return -1;
     }
 
@@ -237,9 +209,6 @@ int on_body(llhttp_t *parser, const char *at, size_t length)
 
     dwnlder::prog_t *prog = get_prog();
 
-    // wait indefinitely until outfile is actually opened
-    uv_cond_wait(&prog->gate, &prog->lock);
-
     uv_buf_t *filewbuf = (uv_buf_t *)malloc(sizeof(uv_buf_t));
     filewbuf->base = (char *)malloc(length);
     filewbuf->len = length;
@@ -248,7 +217,8 @@ int on_body(llhttp_t *parser, const char *at, size_t length)
     uv_fs_t *filewreq = (uv_fs_t *)malloc(sizeof(uv_fs_t));
     filewreq->data = filewbuf;
 
-    if (0 != (retval = uv_fs_write(uv_default_loop(), filewreq, prog->outfile, filewbuf, 1, -1, on_fs_written)))
+    int64_t &filewr_offset = get_composite(parser)->filewr_offset;
+    if (0 != (retval = uv_fs_write(uv_default_loop(), filewreq, prog->outfile, filewbuf, 1, filewr_offset, on_fs_written)))
     {
         fprintf(stderr, "error attempting to write into outfile: %s\n", uv_err_name(retval));
 
@@ -256,14 +226,8 @@ int on_body(llhttp_t *parser, const char *at, size_t length)
         return -1;
     }
 
+    filewr_offset += length;
     return 0;
-}
-
-void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
-{
-    get_prog(req->loop)->res = res;
-
-    free(req);
 }
 
 void common_alloc(uv_handle_t *_, size_t suggested_size, uv_buf_t *buf)
@@ -393,6 +357,60 @@ void on_tcp_connected(uv_connect_t *req, int status)
     }
 
     free(req);
+}
+
+void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
+{
+    get_prog(req->loop)->res = res;
+
+    int retval;
+
+    uv_connect_t *connreq = (uv_connect_t *)malloc(sizeof(uv_connect_t));
+    uv_tcp_t *client = (uv_tcp_t *)req->data;
+
+    if (0 != (retval = uv_tcp_connect(connreq, client, res->ai_addr, on_tcp_connected)))
+    {
+        fprintf(stderr, "couldn't initiate tcp connection: %s\n", uv_err_name(retval));
+    }
+
+    free(req);
+}
+
+void on_attempted_fs_open(uv_fs_t *req)
+{
+    if (0 > req->result)
+    {
+        fprintf(stderr, "couldn't open the file: %s\n", uv_err_name(req->result));
+
+        free(req);
+        return;
+    }
+
+    dwnlder::prog_t *prog = get_prog(req->loop);
+    prog->outfile = req->result;
+
+    free(req);
+
+    int retval, _;
+
+    std::string destin_port = std::to_string(dwnlder::opts.port);
+
+    uv_tcp_t *client = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
+
+    _ = uv_tcp_init(uv_default_loop(), client);
+    client->data = make_composite(&prog->settings);
+
+    uv_getaddrinfo_t *getaddrinfo_req = (uv_getaddrinfo_t *)malloc(sizeof(uv_getaddrinfo_t));
+    getaddrinfo_req->data = client;
+
+    if (0 != (retval = uv_getaddrinfo(uv_default_loop(), getaddrinfo_req, on_resolved, dwnlder::opts.host.c_str(), destin_port.c_str(), &prog->hint)))
+    {
+        fprintf(stderr, "error invoking uv_getaddrinfo: %s\n", uv_err_name(retval));
+
+        free(getaddrinfo_req);
+        free(client);
+        return;
+    }
 }
 
 #endif

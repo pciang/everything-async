@@ -1,6 +1,28 @@
 {
     "configurations": [
         {
+            "name": "Run async downloader",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/async-dwnlder/main",
+            "args": [
+                "-H",
+                "127.0.0.1",
+                "-p",
+                "8080",
+                "-P",
+                "/media/finalv2.pdf",
+                "-o",
+                "./finalv2.pdf"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "Compile a file with main()"
+        },
+        {
             "name": "Run a relay to a local Postgres db",
             "type": "cppdbg",
             "request": "launch",

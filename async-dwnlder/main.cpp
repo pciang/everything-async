@@ -22,38 +22,24 @@ int main(int argc, char *argv[])
     prog->settings.on_header_value_complete = on_header_value_complete;
     prog->settings.on_headers_complete = on_headers_complete;
 
-    uv_cond_init(&prog->gate);
-    uv_mutex_init(&prog->lock);
+    prog->outfile = 0;
 
     uv_loop_t *loop = uv_default_loop();
     loop->data = prog;
 
-    addrinfo hint;
-    memset(&hint, 0, sizeof(addrinfo));
-    hint.ai_family = AF_INET;
-    hint.ai_socktype = SOCK_STREAM;
-    hint.ai_protocol = IPPROTO_TCP;
+    memset(&prog->hint, 0, sizeof(addrinfo));
+    prog->hint.ai_family = AF_INET;
+    prog->hint.ai_socktype = SOCK_STREAM;
+    prog->hint.ai_protocol = IPPROTO_TCP;
 
-    uv_getaddrinfo_t *getaddrinfo_req = (uv_getaddrinfo_t *)malloc(sizeof(uv_getaddrinfo_t));
+    int retval;
 
-    std::string destin_port = std::to_string(dwnlder::opts.port);
-
-    int retval, _;
-    if (0 != (retval = uv_getaddrinfo(loop, getaddrinfo_req, on_resolved, dwnlder::opts.host.c_str(), destin_port.c_str(), &hint)))
+    uv_fs_t *fsreq = (uv_fs_t *)malloc(sizeof(uv_fs_t));
+    if (0 != (retval = uv_fs_open(uv_default_loop(), fsreq, dwnlder::opts.outfile.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRGRP | S_IROTH, on_attempted_fs_open)))
     {
-        fprintf(stderr, "error invoking uv_getaddrinfo: %s\n", uv_err_name(retval));
-        return -1;
-    }
+        fprintf(stderr, "error attempting to open a file: %s\n", uv_err_name(retval));
 
-    uv_tcp_t *client = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
-    _ = uv_tcp_init(loop, client);
-
-    client->data = make_composite(&prog->settings);
-
-    uv_connect_t *connreq = (uv_connect_t *)malloc(sizeof(uv_connect_t));
-    if (0 != (retval = uv_tcp_connect(connreq, client, prog->res->ai_addr, on_tcp_connected)))
-    {
-        fprintf(stderr, "couldn't initiate tcp connection: %s\n", uv_err_name(retval));
+        free(fsreq);
         return -1;
     }
 
