@@ -14,4 +14,4 @@ This silly repository explores and utilises [libuv](https://github.com/libuv/lib
 
 Been coding this entirely on VS Code with the C/C++ extension. The project settings in `./vscode` is not generalised at the moment, so it works only on my Macbook (unless you already have installed `libuv` and `openssl`, and their header files and libraries are available in `/usr/local/include` and `/usr/local/lib`). For `llhttp`, you'll have to build them manually.
 
-Also, coding this in C/C++ because it brings me closer to the machine language.
+Also, coding this in C/C++ because it helps me a lot with building an understanding of how computer works internally.
