@@ -29,7 +29,7 @@
             "program": "${workspaceFolder}/build/async-relay/main",
             "args": [
                 "-p",
-                "8080",
+                "8100",
                 "-H",
                 "127.0.0.1",
                 "-P",

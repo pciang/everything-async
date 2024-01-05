@@ -3,8 +3,7 @@
         {
             "name": "Mac",
             "includePath": [
-                "${workspaceFolder}/libuv/include",
-                "${workspaceFolder}/libuv/src",
+                "/usr/local/include",
                 "${workspaceFolder}/llhttp/build",
                 "${workspaceFolder}/llhttp/build/c"
             ],
