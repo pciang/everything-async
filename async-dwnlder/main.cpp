@@ -13,6 +13,11 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    {
+        FILE *outfile = fopen("/Users/p.peter/ssl-key.log", "w");
+        fclose(outfile);
+    }
+
     dwnlder::prog_t *prog = (dwnlder::prog_t *)malloc(sizeof(dwnlder::prog_t));
     llhttp_settings_init(&prog->settings);
     prog->settings.on_body = on_body;
@@ -21,6 +26,8 @@ int main(int argc, char *argv[])
     prog->settings.on_header_value = on_header_value;
     prog->settings.on_header_value_complete = on_header_value_complete;
     prog->settings.on_headers_complete = on_headers_complete;
+
+    prog->tls_ctx = init_tls(dwnlder::opts.host.c_str());
 
     prog->outfile = 0;
 
@@ -31,6 +38,8 @@ int main(int argc, char *argv[])
     prog->hint.ai_family = AF_INET;
     prog->hint.ai_socktype = SOCK_STREAM;
     prog->hint.ai_protocol = IPPROTO_TCP;
+
+    prog->composite = make_composite(&prog->settings);
 
     int retval;
 
@@ -43,5 +52,26 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    return uv_run(loop, UV_RUN_DEFAULT);
+    retval = uv_run(loop, UV_RUN_DEFAULT);
+
+    if (0 == retval && ishttps())
+    // We need to flush out leftover buffers in the SSL session
+    {
+        int nleftover;
+        char buf[65536];
+        do
+        {
+            nleftover = SSL_read(prog->tls_ctx->tls, buf, sizeof(buf));
+
+            if (0 != (retval = llhttp_execute(&prog->composite->parser, buf, nleftover)))
+            {
+                fprintf(stderr, "error parsing last chunk of response: %d\n", retval);
+                return retval;
+            }
+        } while (nleftover > 0);
+
+        return uv_run(loop, UV_RUN_DEFAULT);
+    }
+
+    return retval;
 }

@@ -84,6 +84,11 @@
         "uv.h": "c",
         "__tree": "cpp",
         "map": "cpp",
-        "iostream": "cpp"
+        "iostream": "cpp",
+        "*.inc": "cpp",
+        "list": "cpp",
+        "unordered_set": "cpp",
+        "hash_map": "cpp",
+        "hash_set": "cpp"
     }
 }

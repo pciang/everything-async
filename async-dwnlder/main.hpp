@@ -12,6 +12,8 @@
 #include "uv.h"
 #include "llhttp.h"
 
+#include "tls.hpp"
+
 typedef std::map<std::string, std::string> header_t;
 
 namespace dwnlder
@@ -20,10 +22,9 @@ namespace dwnlder
     const char *TEMPLATE_GET = "GET {path} HTTP/1.1\r\n"
                                "Host: {host}\r\n"
                                "User-Agent: async-dwnlder\r\n"
-                               "Accept: *\r\n"
+                               "Accept: */*\r\n"
                                "Accept-Encoding: identity\r\n"
                                "Connection: close\r\n"
-                               "Cache-Control: no-cache\r\n"
                                "\r\n";
 
     struct opts_t
@@ -96,14 +97,6 @@ namespace dwnlder
                              .replace(getreq.find("{path}"), 6, opts.path));
     }
 
-    struct prog_t
-    {
-        addrinfo *res;
-        uv_file outfile;
-        addrinfo hint;
-        llhttp_settings_t settings;
-    };
-
     struct composite_parser_t
     {
         llhttp_t parser;
@@ -112,7 +105,81 @@ namespace dwnlder
         header_t::iterator pheader;
         int64_t filewr_offset;
     };
+
+    struct prog_t
+    {
+        addrinfo *res;
+        tls_ctx_t *tls_ctx;
+        composite_parser_t *composite;
+        uv_file outfile;
+        addrinfo hint;
+        llhttp_settings_t settings;
+    };
 };
+
+void on_stream_close(uv_handle_t *handle)
+{
+    free(handle);
+}
+
+bool ishttps()
+{
+    return dwnlder::SERVICE_HTTPS == dwnlder::opts.port;
+}
+
+void destruct_quick_write(uv_write_t *req)
+{
+    uv_buf_t *uvbuf = (uv_buf_t *)req->data;
+
+    free(uvbuf->base);
+    free(uvbuf);
+    free(req);
+}
+
+void on_quick_write(uv_write_t *req, int status)
+{
+    if (0 != status)
+    {
+        fprintf(stderr, "error quick write %p: %s\n", (void *)req->handle, uv_err_name(status));
+        uv_close((uv_handle_t *)req->handle, on_stream_close);
+    }
+
+    destruct_quick_write(req);
+}
+
+int uv_quick_write(uv_stream_t *stream, uv_buf_t *uvbuf)
+{
+    uv_write_t *wreq = (uv_write_t *)malloc(sizeof(uv_write_t));
+    wreq->data = uvbuf;
+
+    int retval = uv_write(wreq, stream, uvbuf, 1, on_quick_write);
+
+    if (0 != retval)
+        destruct_quick_write(wreq);
+
+    return retval;
+}
+
+int uv_quick_write(uv_stream_t *stream)
+{
+    std::string httpreq = dwnlder::prepare_httpreq();
+
+    uv_buf_t *uvbuf = (uv_buf_t *)malloc(sizeof(uv_buf_t));
+    uvbuf->base = (char *)malloc(httpreq.length());
+    uvbuf->len = httpreq.length();
+
+    uv_write_t *wreq = (uv_write_t *)malloc(sizeof(uv_write_t));
+    wreq->data = uvbuf;
+
+    memcpy(uvbuf->base, httpreq.c_str(), httpreq.length());
+
+    int retval = uv_write(wreq, stream, uvbuf, 1, on_quick_write);
+
+    if (0 != retval)
+        destruct_quick_write(wreq);
+
+    return retval;
+}
 
 dwnlder::prog_t *get_prog()
 {
@@ -128,8 +195,6 @@ dwnlder::composite_parser_t *make_composite(const llhttp_settings_t *settings)
 {
     void *composite_raw = malloc(sizeof(dwnlder::composite_parser_t));
     dwnlder::composite_parser_t *composite = new (composite_raw) dwnlder::composite_parser_t;
-    composite->partial = std::string();
-    composite->headers = header_t();
     composite->pheader = composite->headers.begin();
     llhttp_init(&composite->parser, HTTP_RESPONSE, settings);
     composite->filewr_offset = 0LL;
@@ -170,6 +235,7 @@ int on_header_value_complete(llhttp_t *parser)
 {
     dwnlder::composite_parser_t *composite = get_composite(parser);
     composite->pheader->second = std::move(composite->partial);
+    fprintf(stderr, "header %s: %s\n", composite->pheader->first.c_str(), composite->pheader->second.c_str());
     return 0;
 }
 
@@ -247,14 +313,9 @@ void on_shutdown(uv_shutdown_t *req, int status)
     free(req);
 }
 
-void on_closed(uv_handle_t *handle)
-{
-    free(handle);
-}
-
 void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 {
-    int retval;
+    int retval, _;
 
     if (0 >= nread)
     {
@@ -276,6 +337,8 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
         }
         default:
             fprintf(stderr, "error reading stream %p: %s\n", (void *)stream, uv_err_name(nread));
+
+            uv_close((uv_handle_t *)stream, on_stream_close);
             break;
         }
 
@@ -287,15 +350,55 @@ void on_data_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
+    dwnlder::prog_t *prog = get_prog(stream->loop);
     dwnlder::composite_parser_t *composite = get_composite(stream);
 
-    if (0 != (retval = llhttp_execute(&composite->parser, buf->base, nread)))
+    char *raw = buf->base;
+    ssize_t rawlen = nread;
+
+    if (ishttps())
+    {
+        int sslerr;
+
+        _ = BIO_write(prog->tls_ctx->rbio, buf->base, nread);
+        if (!SSL_is_init_finished(prog->tls_ctx->tls))
+        {
+            _ = SSL_do_handshake(prog->tls_ctx->tls);
+
+            _ = uv_quick_write(stream, flush_wbio(prog->tls_ctx->tls));
+
+            if (SSL_is_init_finished(prog->tls_ctx->tls))
+            {
+                std::string httpreq = dwnlder::prepare_httpreq();
+
+                _ = uv_quick_write(stream, ssl_prepare_write(prog->tls_ctx->tls, httpreq.c_str(), httpreq.length()));
+            }
+
+            free(buf->base);
+            return;
+        }
+
+        raw = (char *)malloc(rawlen = 4096);
+        retval = SSL_read(prog->tls_ctx->tls, raw, rawlen);
+
+        if (0 >= retval)
+        {
+            sslerr = SSL_get_error(prog->tls_ctx->tls, retval);
+            fprintf(stderr, "error (possibly) SSL_read: %d\n", sslerr);
+
+            return;
+        }
+        rawlen = retval;
+    }
+
+    if (0 != (retval = llhttp_execute(&composite->parser, raw, rawlen)))
     {
         fprintf(stderr, "error parsing http response: %d\n", retval);
-
-        uv_read_stop(stream);
-        uv_close((uv_handle_t *)stream, on_closed);
+        uv_close((uv_handle_t *)stream, on_stream_close);
     }
+
+    if (ishttps())
+        free(raw);
 
     free(buf->base);
 }
@@ -309,21 +412,7 @@ void destruct_httpreq_wreq(uv_write_t *req)
     free(req);
 }
 
-void on_httpreq_sent(uv_write_t *req, int status)
-{
-    if (0 != status)
-    {
-        fprintf(stderr, "error couldn't send httpreq: %s\n", uv_err_name(status));
-    }
-    else
-    {
-        int _ = uv_read_start(req->handle, common_alloc, on_data_read);
-    }
-
-    destruct_httpreq_wreq(req);
-}
-
-void on_tcp_connected(uv_connect_t *req, int status)
+void on_tcp_connect(uv_connect_t *req, int status)
 {
     if (0 != status)
     {
@@ -333,27 +422,29 @@ void on_tcp_connected(uv_connect_t *req, int status)
         return;
     }
 
-    int retval;
+    int retval, _;
 
     uv_stream_t *stream = req->handle;
-    uv_write_t *wreq = (uv_write_t *)malloc(sizeof(uv_write_t));
-    uv_buf_t *wbuf = (uv_buf_t *)malloc(sizeof(uv_buf_t));
+    dwnlder::prog_t *prog = get_prog(stream->loop);
 
-    std::string httpreq = dwnlder::prepare_httpreq();
+    _ = uv_read_start(req->handle, common_alloc, on_data_read);
 
-    wbuf->base = (char *)malloc(httpreq.length());
-    wbuf->len = httpreq.length();
+    if (ishttps())
+    {
+        retval = SSL_connect(prog->tls_ctx->tls);
 
-    wreq->data = wbuf; // don't free directly from req->bufs
+        if (0 != (retval = uv_quick_write(stream, flush_wbio(prog->tls_ctx->tls))))
+        {
+            fprintf(stderr, "error couldn't initiate write %p: %s\n", (void *)stream, uv_err_name(retval));
 
-    memcpy(wbuf->base, httpreq.c_str(), httpreq.length());
-
-    if (0 != (retval = uv_write(wreq, stream, wbuf, 1, on_httpreq_sent)))
+            uv_close((uv_handle_t *)stream, on_stream_close);
+        }
+    }
+    else if (0 != (retval = uv_quick_write(stream)))
     {
         fprintf(stderr, "error couldn't initiate write %p: %s\n", (void *)stream, uv_err_name(retval));
 
-        destruct_httpreq_wreq(wreq);
-        return;
+        uv_close((uv_handle_t *)stream, on_stream_close);
     }
 
     free(req);
@@ -368,7 +459,7 @@ void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
     uv_connect_t *connreq = (uv_connect_t *)malloc(sizeof(uv_connect_t));
     uv_tcp_t *client = (uv_tcp_t *)req->data;
 
-    if (0 != (retval = uv_tcp_connect(connreq, client, res->ai_addr, on_tcp_connected)))
+    if (0 != (retval = uv_tcp_connect(connreq, client, res->ai_addr, on_tcp_connect)))
     {
         fprintf(stderr, "couldn't initiate tcp connection: %s\n", uv_err_name(retval));
     }
@@ -398,7 +489,7 @@ void on_attempted_fs_open(uv_fs_t *req)
     uv_tcp_t *client = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
 
     _ = uv_tcp_init(uv_default_loop(), client);
-    client->data = make_composite(&prog->settings);
+    client->data = prog->composite;
 
     uv_getaddrinfo_t *getaddrinfo_req = (uv_getaddrinfo_t *)malloc(sizeof(uv_getaddrinfo_t));
     getaddrinfo_req->data = client;

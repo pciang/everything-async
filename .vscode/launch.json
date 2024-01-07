@@ -7,13 +7,13 @@
             "program": "${workspaceFolder}/build/async-dwnlder/main",
             "args": [
                 "-H",
-                "127.0.0.1",
+                "codeload.github.com",
                 "-p",
-                "8080",
+                "443",
                 "-P",
-                "/media/finalv2.pdf",
+                "/libuv/libuv/zip/refs/tags/v1.47.0",
                 "-o",
-                "./finalv2.pdf"
+                "./libuv-test.zip"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
