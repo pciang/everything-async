@@ -4,6 +4,3 @@
 [submodule "llhttp"]
 	path = llhttp
 	url = https://github.com/nodejs/llhttp.git
-[submodule "openssl"]
-	path = openssl
-	url = https://github.com/openssl/openssl.git

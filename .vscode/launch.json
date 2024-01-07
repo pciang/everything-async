@@ -41,6 +41,18 @@
             "externalConsole": false,
             "MIMode": "lldb",
             "preLaunchTask": "Compile a file with main()"
+        },
+        {
+            "name": "Run any non-main .cpp file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/${relativeFileDirname}/${fileBasenameNoExtension}",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "Compile a file with main()"
         }
     ],
     "version": "2.0.0"
