@@ -4,8 +4,7 @@
             "name": "Mac",
             "includePath": [
                 "/usr/local/include",
-                "${workspaceFolder}/llhttp/build",
-                "${workspaceFolder}/llhttp/build/c"
+                "${workspaceFolder}/llhttp/build"
             ],
             "defines": [],
             "macFrameworkPath": [
